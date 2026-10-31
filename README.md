@@ -1,264 +1,296 @@
-# Chicago Taxi Data Engineering Pipeline
+# Technical Decisions and Design Evolution
 
-An end-to-end data engineering project built on the City of Chicago Taxi Trips dataset. The pipeline extracts raw data from the Chicago Data Portal, stores it in an S3-compatible data lake, transforms it through Bronze, Silver and Gold layers using PySpark, and orchestrates the workflow with Apache Airflow.
+## 1. Purpose
 
-## Documentation
+This document records the main technical discussions, alternatives considered, implementation changes and final engineering choices made during the development of the Chicago Taxi Data Engineering project.
 
-For more details about the pipeline:
+The objective is to distinguish between:
 
-- [Architecture](docs/architecture.md) — System components, data flow, orchestration and deployment.
-- [Data Dictionary](docs/data_dictionary.md) — Bronze, Silver, Quality and Gold schemas, fields and validation rules.
-- [Technical Decisions](docs/technical_decisions.md) — Engineering choices, ingestion strategy, idempotency, retries and data-quality policies.
+- Initial ideas and proposed approaches.
+- Alternatives evaluated during development.
+- Decisions changed during implementation.
+- The final architecture actually delivered.
 
+The final implementation reflects the requirements and scope of a reproducible local batch data engineering project.
 
-## Architecture
+---
+
+## 2. Architecture Evolution
+
+### 2.1 Initial pipeline design
+
+The initial concept was an end-to-end batch pipeline:
 
 ```text
-                 City of Chicago API
-                         |
-                         v
-                  Python Ingestion
-                         |
-                         v
-                  RustFS - Bronze
-                   Raw JSONL data
-                         |
-                         v
-                  PySpark Processing
-                         |
-                  +------+------+
-                  |             |
-                  v             v
-             RustFS - Silver  Quarantine
-                  |
-          +-------+--------+
-          |                |
-          v                v
-     Quality Report    PySpark Aggregations
-          |                |
-          v                v
-     RustFS - Quality  RustFS - Gold
-                            |
-                            v
-                    Streamlit Dashboard
-
-               Apache Airflow
-             orchestrates all tasks
+Chicago API
+    |
+    v
+Python Ingestion
+    |
+    v
+Bronze
+    |
+    v
+PySpark Transformations
+    |
+    v
+Silver / Gold
 ```
 
-For more details, see:
-- [Architecture](docs/architecture.md)
-- [Data Dictionary](docs/data_dictionary.md)
+The first design discussions focused on API pagination, raw-data preservation, transformation stages and orchestration.
 
-### Technology stack
+As the project evolved, we introduced dedicated quality reporting, object storage and a dashboard.
 
-| Technology | Purpose |
+### 2.2 Storage: local filesystem, MinIO and RustFS
+
+**Initially considered:**
+- Local filesystem directories mounted through Docker volumes.
+- MinIO as an S3-compatible object-storage service.
+
+**Design evolution:**
+
+A lightweight local setup using mounted directories and local-mode Spark was considered to keep the deployment simple. MinIO was also explored as an object-storage option.
+
+The storage design was subsequently revised to use RustFS.
+
+**Final implementation: RustFS**
+
+RustFS provides an S3-compatible object-storage layer for the project.
+
+The pipeline uses the S3A filesystem connector to read and write Parquet and JSONL datasets.
+
+**Reason for the final choice:**
+
+It provides an object-storage-based architecture while remaining deployable locally through Docker Compose.
+
+The project therefore keeps the separation between processing and storage without requiring a cloud account.
+
+### 2.3 Orchestration: Apache Airflow
+
+**Considered approach:**
+
+Running extraction and transformation scripts manually or chaining them through a lightweight execution mechanism.
+
+**Final implementation: Apache Airflow**
+
+Airflow coordinates the pipeline through a DAG containing four sequential tasks.
+
+This provides:
+- Explicit task dependencies.
+- Independent task execution and monitoring.
+- Execution history.
+- Manual triggering.
+- Configurable extraction parameters.
+
+The DAG is intentionally manually triggered rather than scheduled because the project processes a defined historical dataset.
+
+### 2.4 Processing: PySpark
+
+**Final implementation: PySpark**
+
+PySpark is used for Bronze-to-Silver and Silver-to-Gold transformations.
+
+It provides distributed-data processing capabilities and a consistent DataFrame-based API for cleaning, validation and aggregation.
+
+The local deployment uses Spark in the project container rather than requiring a separate Spark cluster.
+
+### 2.5 Dashboard
+
+**Final implementation: Streamlit with PyArrow**
+
+The dashboard was added to make the Gold and Quality datasets accessible through a simple interface.
+
+It reads persisted Parquet data directly from RustFS using PyArrow.
+
+An important design choice was to avoid rerunning Spark transformations from the dashboard. Processing and presentation remain separate.
+
+---
+
+## 3. Data Ingestion Decisions
+
+### 3.1 Source selection
+
+**Final source:** Chicago Data Portal — Chicago Taxi Trips.
+
+- Dataset ID: `wrvz-psew`
+- API: `https://data.cityofchicago.org/resource/wrvz-psew.json`
+
+The selected extraction window is September to December 2023.
+
+This provides a substantial historical dataset while keeping the project manageable for local execution.
+
+### 3.2 Batch extraction
+
+**Final choice: 10,000 records per batch.**
+
+The API is queried month by month using pagination.
+
+The ordering uses:
+- `trip_start_timestamp`
+- `trip_id`
+
+This provides a stable ordering for pagination.
+
+The extractor also implements retries and maintains batch-level metadata.
+
+### 3.3 Idempotency and resumability
+
+A batch manifest stores information such as record counts and checksums.
+
+The extractor uses this information to identify completed batches and avoid unnecessary repeated extraction.
+
+This was preferred over treating every execution as a completely new ingestion.
+
+---
+
+## 4. Data Lake Design Decisions
+
+### 4.1 Medallion architecture
+
+**Final choice: Bronze, Silver and Gold.**
+
+The layers have distinct responsibilities:
+
+| Layer | Responsibility |
 |---|---|
-| Python | API ingestion and processing utilities |
-| Apache Airflow 3.3.2 | Workflow orchestration |
-| Apache Spark / PySpark 4.2.0 | Data transformations |
-| RustFS | S3-compatible object storage |
-| Parquet / JSONL | Data storage formats |
-| Streamlit | Analytics dashboard |
-| Docker Compose | Local deployment |
+| Bronze | Preserve raw source records |
+| Silver | Normalize, validate and enrich records |
+| Gold | Produce analytical datasets |
 
-## Dataset and scope
+A separate Quality area stores monthly data-quality reports, while Quarantine stores structurally invalid records.
 
-**Source:** [City of Chicago — Taxi Trips 2013–2023](https://data.cityofchicago.org/Transportation/Taxi-Trips-2013-2023-/wrvz-psew)
+### 4.2 Storage formats
 
-The pipeline processes all available records for the four months September–December 2023.
+**Final choices:**
 
-| Month | Records |
-|---|---:|
-| September 2023 | 558,682 |
-| October 2023 | 606,474 |
-| November 2023 | 527,797 |
-| December 2023 | 465,053 |
-| **Total** | **2,158,006** |
-
-## Project structure
-
-```text
-artefact-chicago-taxi-data-engineering/
-├── dags/
-│   └── chicago_taxi_pipeline.py
-├── dashboard/
-│   ├── app.py
-│   ├── Dockerfile
-│   └── requirements.txt
-├── docs/
-│   ├── architecture.md
-│   └── data_dictionary.md
-├── src/
-│   ├── ingestion/
-│   │   └── extract_taxi_data.py
-│   ├── quality/
-│   │   └── silver_quality_report.py
-│   └── transformations/
-│       ├── bronze_to_silver.py
-│       ├── schemas.py
-│       ├── silver_to_gold.py
-│       └── validate_silver.py
-├── docker-compose.yml
-├── Dockerfile
-├── requirements.txt
-├── .gitignore
-└── README.md
-```
-
-## Prerequisites
-
-- Docker Desktop with Docker Compose.
-- An internet connection for the initial Docker image builds and data ingestion.
-
-Make sure Docker Desktop is running before starting the project.
-
-## Getting started
-
-Clone the repository:
-
-```powershell
-git clone https://github.com/aymane70/artefact-chicago-taxi-data-engineering.git
-cd artefact-chicago-taxi-data-engineering
-```
-
-Build and start all services:
-
-```powershell
-docker compose up -d --build
-```
-
-Check the service status:
-
-```powershell
-docker compose ps
-```
-
-The project starts three services:
-
-| Service | Purpose | Local URL |
+| Data area | Format | Reason |
 |---|---|---|
-| Airflow | Pipeline orchestration | http://localhost:8080 |
-| RustFS Console | Data lake exploration | http://localhost:9001 |
-| Streamlit | Analytics dashboard | http://localhost:8501 |
+| Bronze | JSONL | Preserve source records in a readable raw format |
+| Silver | Parquet | Efficient columnar storage for analytical processing |
+| Gold | Parquet | Efficient consumption by reporting tools |
+| Quality | Parquet | Persist structured quality metrics |
 
-**Note:** Docker Compose starts the services but does not automatically execute the Airflow DAG.
+The raw representation is kept separate from the normalized analytical representation.
 
-## Running the pipeline
+---
 
-On a fresh installation, the data lake is initially empty. Run the pipeline before opening the dashboard.
+## 5. Data Quality Decisions
 
-1. Open the Airflow UI at http://localhost:8080.
-2. Locate `chicago_taxi_pipeline`.
-3. Enable the DAG if necessary.
-4. Trigger a DAG run.
-5. Monitor the execution until all four tasks have succeeded.
+### 5.1 Quarantine versus flagging
 
-The workflow executes the following tasks sequentially:
+Two possible approaches were considered for invalid or suspicious records:
 
-| Task | Description |
-|---|---|
-| `ingest_data` | Extracts the Chicago API data and stores raw JSONL batches in Bronze. |
-| `bronze_to_silver` | Applies schema enforcement, transformations and data-quality checks. Writes Silver and Quarantine outputs. |
-| `silver_quality_report` | Generates monthly data-quality metrics. |
-| `silver_to_gold` | Builds the analytical Gold datasets from Silver. |
+1. Reject every record that violates a quality rule.
+2. Quarantine structurally invalid records while retaining other records with explicit quality flags.
 
-The DAG is configured for manual execution (`schedule=None`).
+**Final choice: the second approach.**
 
-## Exploring the data lake
+Records without a usable trip identifier or valid trip start timestamp are quarantined.
 
-Open the RustFS Console:
+Other issues, such as negative durations, incomplete financial information and financial mismatches, are flagged in Silver.
 
-http://localhost:9001
+**Reason:**
 
-Use the local demonstration credentials configured in `docker-compose.yml`:
+A suspicious value does not necessarily make the entire record unusable for every analytical purpose.
 
-- **Access key:** `CHICAGO_TAXI_ADMIN`
-- **Secret key:** `ChicagoTaxi_DE_Project_2026_Key`
+Keeping the record and exposing its quality status allows downstream transformations to apply metric-specific eligibility rules.
 
-Select the `chicago-taxi-lake` bucket.
+### 5.2 Financial mismatch tolerance
 
-The main object prefixes are:
+The calculated financial difference is:
 
 ```text
-chicago-taxi-lake/
-├── bronze/
-│   └── year=2023/
-│       ├── month=09/
-│       ├── month=10/
-│       ├── month=11/
-│       └── month=12/
-├── silver/
-│   └── taxi_trips/
-├── quarantine/
-│   └── taxi_trips/
-├── quality/
-│   └── silver/
-│       └── monthly_report/
-└── gold/
-    ├── daily_revenue/
-    ├── daily_trip_metrics/
-    └── pickup_zone_performance/
+trip_total - (fare + tips + tolls + extras)
 ```
 
-Bronze contains raw JSONL batches and ingestion manifests. Silver, Quality and Gold datasets are stored in Parquet format.
+A mismatch is flagged when the absolute difference exceeds `0.02`.
 
-## Analytics dashboard
+The tolerance avoids treating very small rounding differences as significant mismatches.
 
-Open the Streamlit dashboard:
+Mismatches are retained and reported rather than automatically discarded.
 
-http://localhost:8501
+### 5.3 Metric-specific eligibility
 
-The dashboard reads the persisted Gold and Quality datasets directly from RustFS. It does not rerun Spark transformations.
+The Gold layer does not apply one universal rule to every metric.
 
-It provides:
+For example:
+- Revenue requires an available `trip_total`.
+- Duration metrics exclude invalid, negative, missing and DST-ambiguous duration records.
+- Distance metrics use their own eligibility conditions.
 
-- Total trips and revenue KPIs.
-- Daily revenue trends.
-- Daily trip volume, duration and distance metrics.
-- Monthly pickup-zone performance rankings.
-- Monthly Silver data-quality metrics.
-- A filter for September–December 2023.
+This avoids unnecessarily excluding records from metrics that can still be calculated reliably.
 
-**Important:** On a fresh installation, trigger and complete the pipeline before opening the dashboard. On subsequent starts, previously persisted results remain available in the RustFS volume.
+---
 
-## Stopping the project
+### 6. Execution Time and First Run
 
-Stop the containers:
+The first execution may take longer than subsequent runs.
 
-```powershell
-docker compose down
-```
+| Pipeline stage | What to expect |
+|---|---|
+| `ingest_data` | Approximately 20 minutes. The extractor retrieves more than 2 million records through paginated API requests. Execution time depends on API response times and network connectivity. |
+| `bronze_to_silver` | May take longer on the first execution because Spark needs to download and initialize its S3A/Hadoop dependencies. It then reads and transforms the Bronze data. |
+| `silver_quality_report` | Calculates monthly quality metrics and persists the report. |
+| `silver_to_gold` | Aggregates Silver data into the three Gold datasets. |
 
-This removes the containers and network while preserving named volumes, including the RustFS data lake.
+**Important notes:**
+- Keep Docker services running throughout execution.
+- The first Spark execution may involve dependency downloads and initialization overhead.
+- Subsequent executions may be faster because dependencies are already available.
+- Monitor task logs in Airflow if a task appears to be taking longer than expected.
+- Do not interrupt ingestion unnecessarily; the extractor supports resuming completed batches.
 
-To remove all containers and persistent volumes:
 
-```powershell
-docker compose down -v
-```
+---
 
-**Warning:** The `-v` option deletes the persisted data lake and other named volume data.
+## 7. Technologies Considered but Not Implemented
 
-## Security note
+The project deliberately avoids adding technologies that are not necessary for its current batch-processing requirements.
 
-This project is configured for local development and technical evaluation:
+| Technology | Decision | Reason |
+|---|---|---|
+| Kafka | Not implemented | The source is a historical REST API and the pipeline is batch-oriented |
+| Kubernetes | Not implemented | Docker Compose is sufficient for the local deployment |
+| MLflow | Not implemented | The project focuses on data engineering, not model training or experiment tracking |
+| Separate Spark cluster | Not implemented | Local Spark execution is sufficient for the assignment |
+| Cloud-managed storage | Not implemented | RustFS provides local S3-compatible storage |
 
-- Airflow uses simplified authentication.
-- RustFS uses predefined demonstration credentials.
-- The Streamlit dashboard does not require authentication.
-- Service ports are bound to `127.0.0.1`.
+These are scope decisions, not claims that the technologies are unsuitable for production systems.
 
-These settings are intended to simplify local evaluation, not production deployment. A production environment requires proper authentication, secret management, access controls and network security.
+---
 
-## Results
+## 8. Final Implementation Results
 
-The complete pipeline has been successfully executed for the four selected months:
+The final pipeline processed four months of Chicago Taxi Trips data.
 
-- **2,158,006** records ingested.
-- **217** raw ingestion batches stored in Bronze.
-- **2,158,006** records processed into Silver.
-- **0** records quarantined under the current critical-record validation rules.
-- Monthly data-quality reports generated.
-- Three Gold datasets generated and persisted in RustFS.
-- Streamlit dashboard successfully reads and displays the persisted outputs.
+| Metric | Result |
+|---|---:|
+| Extraction period | September–December 2023 |
+| Total ingested records | 2,158,006 |
+| Ingestion batches | 217 |
+| Silver records | 2,158,006 |
+| Quarantined records | 0 |
+| Daily revenue rows | 122 |
+| Daily trip metrics rows | 122 |
+| Pickup-zone performance rows | 308 |
+
+The quality analysis identified records with duration anomalies, incomplete financial data and financial mismatches. These observations were retained and reported according to the defined quality rules.
+
+The full Airflow pipeline completed successfully.
+
+---
+
+## 9. Future Considerations
+
+The current architecture is intentionally scoped to local batch processing.
+
+Potential future improvements include:
+
+- Incremental Silver and Gold processing.
+- Partition-aware updates instead of full refreshes.
+- Automated data-quality thresholds and failure conditions.
+- More advanced observability and alerting.
+- Deployment to cloud object storage and managed orchestration.
+- Automated tests for transformations and data-quality rules.
+
+These are potential extensions, not features of the current implementation.
