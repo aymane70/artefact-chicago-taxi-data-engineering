@@ -1,169 +1,174 @@
-# Architecture — Chicago Taxi Data Pipeline
+# Architecture — Pipeline Chicago Taxi
 
-## 1. Overview
+## 1. Vue d'ensemble
 
-The Chicago Taxi Data Pipeline is an end-to-end data engineering solution that extracts taxi trip records from the City of Chicago Data Portal, stores raw data in an object storage layer, transforms it into analytical datasets and exposes key metrics through an interactive dashboard.
+Le pipeline Chicago Taxi est une solution de data engineering qui récupère les données de trajets depuis le portail officiel de la ville de Chicago, les stocke dans un data lake, puis les transforme en jeux de données analytiques accessibles depuis un dashboard interactif.
 
-The pipeline follows a Medallion Architecture, separating data into Bronze, Silver and Gold layers. Apache Airflow orchestrates the workflow, while RustFS provides S3-compatible object storage.
+L'architecture suit le modèle Medallion, avec trois couches principales : Bronze, Silver et Gold. Apache Airflow orchestre les traitements et RustFS assure le stockage des données via une API compatible S3.
 
-## 2. Architecture Diagram
+## 2. Schéma de l'architecture
 
-```text
-                 City of Chicago Data Portal
-                    Taxi Trips API
-                           |
-                           v
+```text id="k3v5xd"
+             City of Chicago Data Portal
+                     Taxi Trips API
+                            |
+                            v
                  +---------------------+
-                 |  Python Ingestion   |
-                 |  API extraction     |
-                 |  Pagination         |
-                 |  Batch validation   |
+                 |  Python Ingestion  |
+                 |  Extraction API    |
+                 |  Pagination        |
+                 |  Validation lots   |
                  +---------------------+
-                           |
-                           v
+                            |
+                            v
                  +---------------------+
-                 |     Bronze Layer    |
+                 |    Bronze Layer    |
                  |   RustFS / JSONL    |
-                 |   Raw API records   |
+                 |   Données brutes    |
                  +---------------------+
-                           |
-                           v
+                            |
+                            v
                  +---------------------+
-                 |  PySpark Processing |
-                 |  Cleaning & Casting |
-                 |  Data Quality Rules |
+                 | Traitement PySpark  |
+                 | Nettoyage & cast    |
+                 | Contrôles qualité   |
                  +---------------------+
-                           |
-                           v
+                            |
+                            v
                  +---------------------+
-                 |     Silver Layer    |
-                 |  RustFS / Parquet   |
-                 |  Cleaned Trip Data  |
+                 |    Silver Layer    |
+                 |  RustFS / Parquet  |
+                 |  Données nettoyées |
                  +---------------------+
-                           |
-                +----------+----------+
-                |                     |
-                v                     v
-      +-------------------+  +-------------------+
-      |  Quality Report   |  |  Gold Aggregation |
-      |  Monthly Metrics  |  |  PySpark          |
-      +-------------------+  +-------------------+
-                |                     |
-                v                     v
-      +-------------------+  +-------------------+
-      | Quality Layer     |  | Gold Layer        |
-      | RustFS / Parquet  |  | RustFS / Parquet  |
-      +-------------------+  +-------------------+
+                            |
+                  +---------+---------+
+                  |                   |
+                  v                   v
+          +----------------+  +------------------+
+          | Rapport qualité|  | Agrégations Gold |
+          | Métriques      |  | PySpark          |
+          | mensuelles     |  |                  |
+          +----------------+  +------------------+
+                  |                   |
+                  v                   v
+          +----------------+  +------------------+
+          | Quality Layer  |  | Gold Layer       |
+          | RustFS/Parquet |  | RustFS/Parquet   |
+          +----------------+  +------------------+
                                       |
                                       v
-                             +-------------------+
-                             | Streamlit         |
-                             | Dashboard         |
-                             +-------------------+
+                              +------------------+
+                              | Streamlit        |
+                              | Dashboard        |
+                              +------------------+
 
-              Apache Airflow orchestrates
-              the pipeline processing tasks.
+                 Apache Airflow orchestre
+                 les différentes tâches.
 ```
 
-## 3. Technology Stack
+## 3. Technologies utilisées
 
-| Component | Technology | Responsibility |
+| Composant | Technologie | Rôle |
 |---|---|---|
-| Data source | City of Chicago Data Portal API | Provides taxi trip records. |
-| Ingestion | Python, Requests | Extracts and stores paginated API data. |
-| Object storage | RustFS | Stores Bronze, Silver, Quality and Gold datasets. |
-| Storage protocol | S3-compatible API | Enables access to RustFS through S3 clients. |
-| Processing | Apache Spark, PySpark | Cleans, validates and aggregates trip records. |
-| Orchestration | Apache Airflow | Schedules and coordinates pipeline tasks. |
-| Storage formats | JSONL, Parquet | Stores raw and analytical datasets. |
-| Dashboard | Streamlit, Pandas, PyArrow | Reads Gold and Quality datasets and presents metrics. |
-| Environment | Docker, Docker Compose | Runs the pipeline services in containers. |
+| Source de données | Chicago Data Portal API | Fournit les données de trajets. |
+| Ingestion | Python, Requests | Récupère les données par lots et les stocke. |
+| Stockage objet | RustFS | Stocke les données Bronze, Silver, Quality et Gold. |
+| Protocole de stockage | API compatible S3 | Permet d'accéder à RustFS avec des clients S3. |
+| Traitement | Apache Spark, PySpark | Nettoie, valide et agrège les données. |
+| Orchestration | Apache Airflow | Coordonne les différentes tâches du pipeline. |
+| Formats de stockage | JSONL, Parquet | Stockent les données brutes et transformées. |
+| Dashboard | Streamlit, Pandas, PyArrow | Lit les données Gold et Quality et affiche les indicateurs. |
+| Environnement | Docker, Docker Compose | Exécute les services dans des conteneurs. |
 
-## 4. Data Flow
+## 4. Flux de données
 
-### 4.1 Data Extraction — Bronze
+### 4.1 Extraction — Bronze
 
-A Python ingestion module extracts taxi trip records from the Chicago Data Portal API.
+Un module Python récupère les trajets depuis l'API du Chicago Data Portal.
 
-The extraction process:
-- Retrieves records for the selected reporting period.
-- Uses pagination to retrieve large volumes of data in batches.
-- Stores raw records in JSONL format.
-- Organizes objects by year and month.
-- Maintains ingestion manifests containing batch-level metadata.
+L'extraction :
 
-Bronze preserves the source records before analytical transformations.
+- Récupère les données sur la période définie.
+- Utilise la pagination pour traiter les données par lots.
+- Stocke les enregistrements bruts au format JSONL.
+- Organise les fichiers par année et par mois.
+- Génère des manifestes contenant les informations de suivi des lots.
 
-### 4.2 Data Transformation — Silver
+Bronze conserve les données telles qu'elles proviennent de la source, avant toute transformation analytique.
 
-PySpark reads the Bronze JSONL files and applies the transformation rules.
+### 4.2 Transformation — Silver
 
-The processing includes:
-- Cleaning string fields and handling empty values.
-- Converting timestamps and numeric fields to their expected data types.
-- Preserving raw numeric values for diagnostic purposes.
-- Applying data-quality checks.
-- Separating records that fail critical structural validation into Quarantine.
+PySpark lit les fichiers JSONL de Bronze et applique les règles de transformation.
 
-The resulting Silver dataset is stored in Parquet format, partitioned by year and month.
+Le traitement comprend :
 
-### 4.3 Data Quality Reporting
+- Le nettoyage des chaînes de caractères et la gestion des valeurs vides.
+- La conversion des dates et des champs numériques vers les types attendus.
+- La conservation des valeurs numériques brutes pour faciliter les diagnostics.
+- L'application des contrôles qualité.
+- La séparation des enregistrements qui ne respectent pas les contrôles structurels critiques dans Quarantine.
 
-A dedicated quality-reporting task evaluates the Silver dataset.
+Les données Silver sont enregistrées au format Parquet et partitionnées par année et par mois.
 
-It calculates monthly metrics, including:
-- Total records and unique trip identifiers.
-- Duplicate trip identifiers.
-- Counts and percentages of records affected by each implemented quality flag.
+### 4.3 Rapports qualité
 
-The resulting report is stored in the Quality layer in Parquet format.
+Une tâche dédiée analyse les données Silver et calcule les indicateurs qualité chaque mois.
 
-### 4.4 Analytical Transformation — Gold
+Elle mesure notamment :
 
-PySpark generates three analytical datasets from Silver:
+- Le nombre total d'enregistrements et d'identifiants de trajet distincts.
+- Le nombre d'identifiants dupliqués.
+- Le nombre et le pourcentage d'enregistrements concernés par chaque anomalie détectée.
 
-- **Daily Revenue:** Daily trip volume, reported revenue, average trip revenue, fares and tips.
-- **Daily Trip Metrics:** Daily average trip duration and distance, with independent eligibility rules.
-- **Pickup Zone Performance:** Monthly trip volume, revenue, average distance and ranking by pickup community area.
+Les rapports sont enregistrés au format Parquet dans la couche Quality.
 
-These datasets are stored in Parquet format and serve as the dashboard's analytical source.
+### 4.4 Transformation analytique — Gold
+
+PySpark produit trois jeux de données à partir de Silver :
+
+- **Daily Revenue :** volume de trajets, revenus déclarés, revenu moyen, montants des courses et pourboires par jour.
+- **Daily Trip Metrics :** durée et distance moyennes des trajets par jour, avec des règles d'éligibilité indépendantes.
+- **Pickup Zone Performance :** volume de trajets, revenus, distance moyenne et classement mensuel des zones de prise en charge.
+
+Ces jeux de données sont stockés au format Parquet et servent de source au dashboard.
 
 ### 4.5 Dashboard
 
-The Streamlit dashboard reads the persisted Gold and Quality datasets directly from RustFS through its S3-compatible interface.
+Le dashboard Streamlit lit directement les données Gold et les rapports Quality stockés dans RustFS, via son interface compatible S3.
 
-It provides:
-- Overall trip and revenue KPIs.
-- Daily revenue and trip-volume trends.
-- Duration and distance indicators.
-- Pickup community area performance.
-- Monthly data-quality metrics.
-- A month filter for exploring the reporting period.
+Il permet de consulter :
 
-The dashboard does not execute the transformations. It consumes the datasets produced by the pipeline.
+- Les principaux indicateurs de trajets et de revenus.
+- L'évolution journalière des revenus et du volume de trajets.
+- Les indicateurs de durée et de distance.
+- La performance des zones de prise en charge.
+- Les métriques qualité mensuelles.
+- Les résultats filtrés par mois.
+
+Le dashboard ne relance pas les transformations Spark : il exploite les données déjà produites par le pipeline.
 
 ## 5. Orchestration
 
-Apache Airflow coordinates the workflow through the `chicago_taxi_pipeline` DAG.
+Apache Airflow coordonne le workflow à travers le DAG `chicago_taxi_pipeline`.
 
-The DAG contains four sequential tasks:
+Le DAG comprend quatre tâches exécutées dans l'ordre :
 
-| Order | Task | Responsibility |
+| Ordre | Tâche | Rôle |
 |---|---|---|
-| 1 | `ingest_data` | Extracts API records and writes Bronze batches. |
-| 2 | `bronze_to_silver` | Cleans, casts and validates raw records. |
-| 3 | `silver_quality_report` | Generates monthly data-quality metrics. |
-| 4 | `silver_to_gold` | Produces the analytical Gold datasets. |
+| 1 | `ingest_data` | Récupère les données de l'API et écrit les lots dans Bronze. |
+| 2 | `bronze_to_silver` | Nettoie, convertit et valide les données brutes. |
+| 3 | `silver_quality_report` | Calcule les indicateurs qualité mensuels. |
+| 4 | `silver_to_gold` | Produit les jeux de données analytiques Gold. |
 
-Each task depends on the successful completion of the preceding task.
+Chaque tâche dépend de la réussite de la précédente.
 
-The DAG is configured for manual execution (`schedule=None`).
+Le DAG est configuré pour être lancé manuellement (`schedule=None`).
 
-## 6. Storage Organization
+## 6. Organisation du stockage
 
-All persistent pipeline datasets are stored in the RustFS bucket `chicago-taxi-lake`.
+Toutes les données persistantes du pipeline sont stockées dans le bucket RustFS `chicago-taxi-lake`.
 
-```text
+```text id="c2m4qv"
 chicago-taxi-lake/
 ├── bronze/
 │   └── year=2023/
@@ -184,31 +189,31 @@ chicago-taxi-lake/
     └── pickup_zone_performance/
 ```
 
-Bronze data is stored as JSONL, while Silver, Quarantine, Quality and Gold datasets use Parquet.
+Bronze utilise le format JSONL. Silver, Quarantine, Quality et Gold utilisent le format Parquet.
 
-## 7. Deployment and Runtime
+## 7. Déploiement et exécution
 
-Docker Compose runs the main application services:
+Docker Compose démarre les principaux services du projet :
 
-- **Airflow:** Executes and monitors the pipeline DAG.
-- **RustFS:** Provides persistent S3-compatible object storage.
-- **Streamlit:** Serves the analytical dashboard.
+- **Airflow :** exécute et supervise le DAG.
+- **RustFS :** fournit le stockage objet persistant compatible S3.
+- **Streamlit :** héberge le dashboard analytique.
 
-PySpark runs within the Airflow execution environment for the transformation tasks. Its temporary processing files are separate from the persistent datasets stored in RustFS.
+PySpark s'exécute dans l'environnement Airflow pour les tâches de transformation. Les fichiers temporaires utilisés pendant les traitements sont distincts des données persistantes stockées dans RustFS.
 
-The dashboard accesses RustFS through the internal Docker network. The Airflow UI, RustFS console and dashboard are exposed on their respective local ports.
+Le dashboard accède à RustFS via le réseau interne Docker. Les interfaces Airflow, RustFS et Streamlit sont accessibles localement sur leurs ports respectifs.
 
-## 8. Design Principles
+## 8. Principes de conception
 
-The architecture follows several principles:
+L'architecture repose sur quelques principes :
 
-- **Layer separation:** Raw, transformed and analytical datasets are stored independently.
-- **Reproducibility:** Transformations operate on persisted Bronze data.
-- **Data traceability:** Quality indicators and quarantine diagnostics make data issues visible.
-- **Idempotent ingestion:** Existing validated batches can be reused rather than unnecessarily re-ingested.
-- **Decoupled consumption:** The dashboard reads Gold and Quality outputs without being coupled to Spark execution.
-- **Persistent storage:** Docker volumes preserve RustFS data across container restarts.
+- **Séparation des couches :** les données brutes, transformées et analytiques sont stockées séparément.
+- **Reproductibilité :** les transformations repartent des données Bronze persistées.
+- **Traçabilité :** les indicateurs qualité et les informations de quarantaine permettent de retrouver les anomalies.
+- **Idempotence de l'ingestion :** les lots déjà validés peuvent être réutilisés sans être extraits à nouveau inutilement.
+- **Découplage du dashboard :** la visualisation consomme les résultats Gold et Quality sans dépendre de l'exécution de Spark.
+- **Persistance :** les volumes Docker permettent de conserver les données RustFS après le redémarrage des conteneurs.
 
 ---
 
-For field definitions, quality flags and analytical dataset schemas, see [Data Dictionary](data_dictionary.md).
+Pour les définitions des champs, les indicateurs qualité et les schémas des jeux de données analytiques, consulter le [Dictionnaire de données](data_dictionary.md).
