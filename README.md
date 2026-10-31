@@ -4,7 +4,17 @@ Projet de data engineering de bout en bout développé avec Python, Apache Airfl
 
 Le pipeline récupère les données de trajets de taxis de Chicago depuis le portail officiel de la ville, les stocke dans un data lake compatible S3, puis les transforme selon une architecture Medallion. Des règles de qualité sont appliquées avant de produire les jeux de données utilisés par le dashboard.
 
-## 1. Présentation du projet
+##  Documentation complémentaire
+
+Le dossier `docs/` contient trois documents :
+
+- **[Architecture](docs/architecture.md) :** présente les composants du système et la circulation des données.
+- **[Data Dictionary](docs/data_dictionary.md) :** décrit les jeux de données, les champs, les types et les sorties analytiques.
+- **[Technical Decisions](docs/technical_decisions.md) :** détaille les choix techniques, les alternatives étudiées et les pistes d'amélioration.
+
+---
+
+##  Présentation du projet
 
 Le pipeline traite quatre mois de données, de septembre à décembre 2023.
 
@@ -71,7 +81,7 @@ Le pipeline traite quatre mois de données, de septembre à décembre 2023.
 
 ---
 
-## 2. Installation et démarrage
+##  Installation et démarrage
 
 ### Prérequis
 
@@ -201,7 +211,7 @@ Le dashboard affiche les résultats une fois le pipeline exécuté et les donné
 
 ---
 
-## 3. Exécution du pipeline
+##  Exécution du pipeline
 
 ### Étape 1 — Ouvrir Airflow
 
@@ -253,7 +263,7 @@ Une fois le DAG terminé :
 
 ---
 
-## 4. Durée d'exécution et résultats attendus
+##  Durée d'exécution et résultats attendus
 
 La première exécution peut être plus longue que les suivantes.
 
@@ -288,7 +298,7 @@ Les rapports qualité signalent également des anomalies de durée, des informat
 
 ---
 
-## 5. Arrêt des services
+##  Arrêt des services
 
 Pour arrêter les conteneurs :
 
@@ -314,7 +324,7 @@ docker compose down -v
 
 ---
 
-## 6. Organisation du data lake
+##  Organisation du data lake
 
 Le projet suit une architecture Medallion composée de trois couches :
 
@@ -342,7 +352,7 @@ Les données brutes restent ainsi séparées des données nettoyées et des rés
 
 ---
 
-## 7. Contrôles de qualité
+##  Contrôles de qualité
 
 ### Mise en quarantaine ou signalement
 
@@ -385,7 +395,7 @@ Cette approche permet de conserver les enregistrements utiles sans compromettre 
 
 ---
 
-## 8. Structure du projet
+##  Structure du projet
 
 ```text
 artefact-chicago-taxi-data-engineering/
@@ -421,17 +431,9 @@ artefact-chicago-taxi-data-engineering/
 
 ---
 
-## 9. Documentation complémentaire
 
-Le dossier `docs/` contient trois documents :
 
-- **[Architecture](docs/architecture.md) :** présente les composants du système et la circulation des données.
-- **[Data Dictionary](docs/data_dictionary.md) :** décrit les jeux de données, les champs, les types et les sorties analytiques.
-- **[Technical Decisions](docs/technical_decisions.md) :** détaille les choix techniques, les alternatives étudiées et les pistes d'amélioration.
-
----
-
-## 10. Source des données
+##  Source des données
 
 Le projet utilise le jeu de données officiel **Chicago Taxi Trips**, disponible sur le Chicago Data Portal.
 
@@ -444,7 +446,7 @@ L'extraction est réalisée mois par mois, avec une pagination et un ordre stabl
 
 ---
 
-## 11. Améliorations possibles
+##  Améliorations possibles
 
 Plusieurs évolutions pourraient être ajoutées par la suite :
 
