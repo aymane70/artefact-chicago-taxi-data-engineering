@@ -18,6 +18,7 @@ services:
       AIRFLOW__CORE__EXECUTOR: SequentialExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+      PYSPARK_SUBMIT_ARGS: "--driver-memory 3g pyspark-shell"
       PYTHONPATH: /opt/airflow/src
       RUSTFS_ENDPOINT_URL: "http://rustfs:9000"
       RUSTFS_ACCESS_KEY: "CHICAGO_TAXI_ADMIN"

@@ -2,6 +2,7 @@
 import argparse
 import os
 
+from pyspark import StorageLevel
 from pyspark.sql import SparkSession, functions as F
 
 from transformations.schemas import RAW_TAXI_TRIPS_SCHEMA
@@ -54,6 +55,17 @@ def create_spark_session():
     return (
         SparkSession.builder
         .appName("ChicagoTaxi-BronzeToSilver")
+        .master("local[2]")
+
+        # Memory and execution configuration
+        .config("spark.driver.memory", "3g")
+        .config("spark.sql.shuffle.partitions", "8")
+        .config("spark.default.parallelism", "4")
+        .config("spark.sql.adaptive.enabled", "true")
+        .config(
+            "spark.sql.files.maxPartitionBytes",
+            str(32 * 1024 * 1024)
+        )
 
         # Hadoop AWS connector
         .config(
@@ -99,9 +111,8 @@ def create_spark_session():
 # 1. Read Bronze data from RustFS
 # --------------------------------------------------
 
-
-
 def read_bronze(spark, bronze_path):
+
     return (
         spark.read
         .schema(RAW_TAXI_TRIPS_SCHEMA)
@@ -149,6 +160,7 @@ def clean_string_columns(df):
     ]
 
     for column in string_columns:
+
         df = df.withColumn(
             column,
             F.when(
@@ -187,6 +199,7 @@ def cast_columns(df):
     }
 
     for column, target_type in cast_definitions.items():
+
         df = df.withColumn(
             column,
             F.expr(
@@ -295,8 +308,7 @@ def apply_data_quality_rules(df):
     # ----------------------------------------------
 
     # November 5, 2023: Chicago daylight-saving transition.
-    # Only 1 AM -> 1 AM negative intervals are potentially
-    # ambiguous because the local 1 AM hour occurred twice.
+    # The local 1 AM hour occurred twice.
 
     dst_ambiguous_condition = (
         (F.to_date("trip_start_timestamp") == F.lit("2023-11-05"))
@@ -360,6 +372,7 @@ def apply_data_quality_rules(df):
     complete_financial_condition = F.lit(True)
 
     for column in financial_columns:
+
         complete_financial_condition = (
             complete_financial_condition
             & F.col(column).isNotNull()
@@ -377,7 +390,6 @@ def apply_data_quality_rules(df):
         + F.col("extras")
     )
 
-    # Keep original source values unchanged.
     # Positive difference means reported total is higher.
 
     df = df.withColumn(
@@ -417,18 +429,39 @@ def transform_bronze_to_silver(
 
     spark = create_spark_session()
 
+    transformed_df = None
+
     try:
 
         print("Starting Bronze-to-Silver transformation.")
         print(f"Bronze input: {bronze_path}")
 
+        print(
+            "Spark master:",
+            spark.sparkContext.master
+        )
+
+        print(
+            "Spark driver memory:",
+            spark.sparkContext.getConf().get(
+                "spark.driver.memory",
+                "Not explicitly configured"
+            )
+        )
+
+        # ------------------------------------------
         # Read Bronze
+        # ------------------------------------------
+
         raw_df = read_bronze(
             spark,
             bronze_path
         )
 
-        # Preserve raw values for conversion-failure detection
+        # ------------------------------------------
+        # Preserve raw values for conversion checks
+        # ------------------------------------------
+
         numeric_columns = [
             "trip_seconds",
             "trip_miles",
@@ -446,29 +479,48 @@ def transform_bronze_to_silver(
         ]
 
         for column in numeric_columns:
+
             raw_df = raw_df.withColumnRenamed(
                 column,
                 f"raw_{column}"
             )
 
-        # Recreate the original names for casting
+        # Recreate original column names for casting
         for column in numeric_columns:
+
             raw_df = raw_df.withColumn(
                 column,
                 F.col(f"raw_{column}")
             )
 
+        # ------------------------------------------
         # Clean and cast
+        # ------------------------------------------
+
         raw_df = clean_string_columns(raw_df)
 
         transformed_df = cast_columns(raw_df)
 
+        # ------------------------------------------
         # Apply data quality rules
+        # ------------------------------------------
+
         transformed_df, invalid_condition = (
             apply_data_quality_rules(transformed_df)
         )
 
+        # Persist transformed data on disk.
+        # This avoids parsing the Bronze JSON source again
+        # when writing Silver and Quarantine separately.
+
+        transformed_df = transformed_df.persist(
+            StorageLevel.DISK_ONLY
+        )
+
+        # ------------------------------------------
         # Separate Silver and Quarantine
+        # ------------------------------------------
+
         quarantine_df = transformed_df.filter(
             invalid_condition
         )
@@ -477,7 +529,10 @@ def transform_bronze_to_silver(
             ~invalid_condition
         )
 
-        # Remove temporary raw columns and quarantine-only reason
+        # ------------------------------------------
+        # Remove temporary columns from Silver
+        # ------------------------------------------
+
         raw_columns = [
             f"raw_{column}"
             for column in numeric_columns
@@ -496,13 +551,16 @@ def transform_bronze_to_silver(
 
         (
             silver_df
-            .repartition(4, "year", "month")
+            .coalesce(8)
             .write
             .mode("overwrite")
             .option("maxRecordsPerFile", 100000)
             .partitionBy("year", "month")
             .parquet(silver_path)
         )
+
+        print("Silver write completed.")
+
         # ------------------------------------------
         # Write Quarantine to RustFS
         # ------------------------------------------
@@ -511,41 +569,57 @@ def transform_bronze_to_silver(
 
         (
             quarantine_df
-            .repartition(4, "year", "month")
+            .coalesce(8)
             .write
             .mode("overwrite")
             .option("maxRecordsPerFile", 100000)
             .partitionBy("year", "month")
             .parquet(quarantine_path)
         )
+
+        print("Quarantine write completed.")
+
         # ------------------------------------------
-        # Final counts (read back from RustFS)
+        # Completion
         # ------------------------------------------
 
-        silver_count = spark.read.parquet(silver_path).count()
-
-        quarantine_count = (
-            spark.read
-            .schema(quarantine_df.schema)
-            .parquet(quarantine_path)
-            .count()
-        )
-        
-                
         print("\nBronze-to-Silver transformation completed.")
         print(f"Silver output: {silver_path}")
         print(f"Quarantine output: {quarantine_path}")
-        print(f"Silver records: {silver_count:,}")
-        print(f"Quarantined records: {quarantine_count:,}")
+
         print(
-            f"Total processed records: "
-            f"{silver_count + quarantine_count:,}"
+            "Cached transformed data was released after processing."
         )
 
-        return silver_df, quarantine_df
-    
     finally:
-        spark.stop()
+
+        # ------------------------------------------
+        # Release cached data
+        # ------------------------------------------
+
+        if transformed_df is not None:
+
+            try:
+                transformed_df.unpersist(blocking=True)
+
+            except Exception as cache_error:
+                print(
+                    f"Warning: could not release Spark cache: "
+                    f"{cache_error}"
+                )
+
+        # ------------------------------------------
+        # Stop Spark
+        # ------------------------------------------
+
+        try:
+            spark.stop()
+
+        except Exception as stop_error:
+            print(
+                f"Warning: Spark shutdown encountered an error: "
+                f"{stop_error}"
+            )
 
 
 # --------------------------------------------------
