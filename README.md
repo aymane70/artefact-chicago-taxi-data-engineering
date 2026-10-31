@@ -4,6 +4,27 @@ Projet de data engineering de bout en bout développé avec Python, Apache Airfl
 
 Le pipeline récupère les données de trajets de taxis de Chicago depuis le portail officiel de la ville, les stocke dans un data lake compatible S3, puis les transforme selon une architecture Medallion. Des règles de qualité sont appliquées avant de produire les jeux de données utilisés par le dashboard.
 
+## Table des matières
+
+1. [Documentation complémentaire](#documentation-complémentaire)
+2. [Présentation du projet](#présentation-du-projet)
+   - [Architecture](#architecture)
+   - [Technologies utilisées](#technologies-utilisées)
+3. [Installation et démarrage](#installation-et-démarrage)
+   - [Prérequis](#prérequis)
+   - [Récupérer le projet](#étape-1--récupérer-le-projet)
+   - [Démarrer les services](#étape-2--démarrer-les-services)
+   - [Accéder aux interfaces](#étape-3--accéder-aux-interfaces)
+4. [Exécution du pipeline](#exécution-du-pipeline)
+5. [Durée d'exécution et résultats attendus](#durée-dexécution-et-résultats-attendus)
+6. [Arrêt des services](#arrêt-des-services)
+7. [Organisation du data lake](#organisation-du-data-lake)
+8. [Contrôles de qualité](#contrôles-de-qualité)
+9. [Structure du projet](#structure-du-projet)
+10. [Source des données](#source-des-données)
+11. [Améliorations possibles](#améliorations-possibles)
+
+
 ##  Documentation complémentaire
 
 Le dossier `docs/` contient trois documents :
