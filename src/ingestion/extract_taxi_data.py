@@ -11,7 +11,7 @@ from pathlib import Path
 import boto3
 import requests
 from botocore.config import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, BotoCoreError
 
 
 # --------------------------------------------------
@@ -79,15 +79,57 @@ def get_s3_client():
     )
 
 
+
+
+
 def ensure_bucket_exists(s3):
-    """Fail early if the configured bucket is unavailable."""
+    """Ensure the configured S3 bucket exists and is accessible."""
 
     try:
         s3.head_bucket(Bucket=S3_BUCKET)
+        logger.info("Bucket '%s' already exists.", S3_BUCKET)
+        return
+
+    except ClientError as error:
+        status_code = error.response.get(
+            "ResponseMetadata", {}
+        ).get("HTTPStatusCode")
+
+        error_code = error.response.get(
+            "Error", {}
+        ).get("Code", "")
+
+        if status_code != 404 and error_code not in (
+            "404", "NoSuchBucket", "NotFound"
+        ):
+            raise RuntimeError(
+                f"Cannot access bucket '{S3_BUCKET}'. "
+                f"Error: {error_code or status_code}"
+            ) from error
+
+    
+    except BotoCoreError as error:
+        raise RuntimeError(
+            f"Cannot connect to RustFS at '{S3_ENDPOINT_URL}'. "
+            "Check that the RustFS service is running and accessible."
+        ) from error
+
+    logger.info("Bucket '%s' does not exist. Creating it...", S3_BUCKET)
+
+    try:
+        s3.create_bucket(Bucket=S3_BUCKET)
+        s3.head_bucket(Bucket=S3_BUCKET)
+
+        logger.info(
+            "Bucket '%s' created and verified successfully.",
+            S3_BUCKET,
+        )
+
     except ClientError as error:
         raise RuntimeError(
-            f"Cannot access S3 bucket '{S3_BUCKET}'. "
-            "Check the bucket name and RustFS credentials."
+            f"Failed to create or verify bucket '{S3_BUCKET}'. "
+            f"Check RustFS credentials and permissions. "
+            f"Error: {error.response.get('Error', {}).get('Code')}"
         ) from error
 
 
