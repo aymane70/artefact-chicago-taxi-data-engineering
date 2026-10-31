@@ -1,0 +1,83 @@
+
+services:
+  airflow:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: chicago-taxi-airflow
+
+    command: standalone
+
+    ports:
+      - "127.0.0.1:8080:8080"
+
+    environment:
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"
+      AIRFLOW_HOME: /opt/airflow
+      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+      PYTHONPATH: /opt/airflow/src
+      RUSTFS_ENDPOINT_URL: "http://rustfs:9000"
+      RUSTFS_ACCESS_KEY: "CHICAGO_TAXI_ADMIN"
+      RUSTFS_SECRET_KEY: "ChicagoTaxi_DE_Project_2026_Key"
+      RUSTFS_BUCKET: "chicago-taxi-lake"
+      AWS_DEFAULT_REGION: "us-east-1"
+
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
+      - ./data:/opt/airflow/data
+      - airflow_logs:/opt/airflow/logs
+      - airflow_data:/opt/airflow
+
+    restart: unless-stopped
+
+
+  rustfs:
+    image: rustfs/rustfs:1.0.3
+    container_name: chicago-taxi-rustfs
+
+    command: ["/data"]
+
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+
+    environment:
+      RUSTFS_ACCESS_KEY: "CHICAGO_TAXI_ADMIN"
+      RUSTFS_SECRET_KEY: "ChicagoTaxi_DE_Project_2026_Key"
+      RUSTFS_VOLUMES: "/data"
+      RUSTFS_ADDRESS: "0.0.0.0:9000"
+      RUSTFS_CONSOLE_ADDRESS: "0.0.0.0:9001"
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_OBS_LOGGER_LEVEL: "error"
+
+    volumes:
+      - rustfs_data:/data
+
+    restart: unless-stopped
+
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: chicago_taxi_dashboard
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8501:8501"
+    environment:
+      RUSTFS_ENDPOINT_URL: "http://rustfs:9000"
+      RUSTFS_ACCESS_KEY: "CHICAGO_TAXI_ADMIN"
+      RUSTFS_SECRET_KEY: "ChicagoTaxi_DE_Project_2026_Key"
+      RUSTFS_BUCKET: "chicago-taxi-lake"
+      AWS_DEFAULT_REGION: "us-east-1"
+    depends_on:
+      - rustfs
+
+volumes:
+  airflow_logs:
+  airflow_data:
+  rustfs_data:

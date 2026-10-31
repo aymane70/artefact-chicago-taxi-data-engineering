@@ -1,0 +1,9 @@
+# HTTP ingestion
+requests==2.34.2
+python-dotenv==1.2.3
+
+# Object storage
+boto3
+
+# Distributed processing
+pyspark==4.2.0
