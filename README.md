@@ -108,15 +108,26 @@ Le dashboard présente les résultats Gold et les rapports qualité stockés dan
 ### Suivre l'avancement
 
 **Dans les logs Airflow.** Cliquez sur la tâche `ingest_data`, puis sur **Logs**. L'ingestion est la plus longue étape, et les logs affichent la progression lot par lot :
-![Ingestion ](docs/screenshots/ingesion.png)
-![Ingestion logs](docs/screenshots/ingesion_logs.png)
+
+| Tâche `ingest_data` dans Airflow |
+|:---:|
+| ![Tâche ingest_data en cours dans Airflow](docs/screenshots/ingestion.png) |
+
+| Logs de l'ingestion, lot par lot |
+|:---:|
+| ![Logs de la tâche ingest_data](docs/screenshots/ingestion_logs.png) |
 
 Chaque mois est extrait puis vérifié. Quand la ligne `Reconciliation successful` apparaît, le mois est complet et le pipeline passe au suivant (octobre, novembre, décembre).
 
 **Dans RustFS, en temps réel.** Ouvrez la console ([http://localhost:9001](http://localhost:9001)), puis le bucket `chicago-taxi-lake`. Pendant l'ingestion, vous voyez les fichiers apparaître au fur et à mesure dans `bronze/year=2023/month=09/` : un fichier `batch_xxxxx.jsonl` par lot, et le fichier `_manifest.json` du mois. Les dossiers `silver/`, `quality/` et `gold/` apparaissent ensuite, à mesure que les tâches suivantes se terminent.
 
-![bucket bronze](docs/screenshots/bucket_bronze.png)
-![bucket bronze result](docs/screenshots/4month.png)
+| Fichiers Bronze qui apparaissent pendant l'ingestion |
+|:---:|
+| ![Bucket RustFS, couche Bronze en cours d'ingestion](docs/screenshots/bucket_bronze.png) |
+
+| Bronze complet : les quatre mois ingérés |
+|:---:|
+| ![Bucket RustFS, quatre mois de données Bronze](docs/screenshots/4month.png) |
 
 **Bon à savoir :** l'API de Chicago peut être très sollicitée ou répondre lentement. Voir des nouvelles tentatives pendant l'ingestion est donc normal :
 
@@ -139,10 +150,17 @@ Lorsque les quatre tâches sont vertes dans Airflow, les données Gold sont prê
 - la performance des zones de prise en charge ;
 - les indicateurs qualité mensuels, avec un filtre par mois.
 
+| DAG terminé : les quatre tâches en succès |
+|:---:|
+| ![DAG chicago_taxi_pipeline terminé dans Airflow](docs/screenshots/dag.png) |
 
-![DAG](docs/screenshots/dag.png)
-![Data lake](docs/screenshots/buckets.png)
-![Dashboard Streamlit](docs/screenshots/dashboard.png)
+| Data lake : couches Bronze, Silver, Quality et Gold |
+|:---:|
+| ![Contenu du bucket chicago-taxi-lake](docs/screenshots/buckets.png) |
+
+| Dashboard Streamlit |
+|:---:|
+| ![Dashboard Streamlit](docs/screenshots/dashboard.png) |
 
 Les fichiers Parquet correspondants se trouvent aussi dans `gold/` et `quality/` du bucket RustFS.
 
@@ -152,6 +170,7 @@ Les fichiers Parquet correspondants se trouvent aussi dans `gold/` et `quality/`
 - **Transformations Spark :** le premier lancement peut prendre plus de temps, car les dépendances doivent d'abord être téléchargées.
 
 La durée totale varie selon les conditions d'exécution et les ressources de votre machine.
+
 ## Arrêter les services
 
 Pour arrêter les conteneurs en gardant vos données :
