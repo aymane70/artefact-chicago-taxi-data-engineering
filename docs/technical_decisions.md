@@ -8,7 +8,9 @@ J'utilise le jeu de données Chicago Taxi Trips (`wrvz-psew`) via l'API du porta
 
 J'ai choisi quatre mois complets parce que c'est assez pour tester toutes les étapes et comparer les mois entre eux, tout en restant raisonnable pour une exécution locale. Un mois seul aurait limité les comparaisons, et une année entière aurait surtout allongé les temps d'extraction.
 
-Je passe par l'API plutôt que par le fichier CSV complet, qui pèse plusieurs dizaines de Go. L'extraction se fait mois par mois, ce qui permet de contrôler les volumes de chaque mois et de reprendre à un mois précis.
+L'extraction se fait mois par mois, ce qui permet de contrôler les volumes de chaque mois et de reprendre à un mois précis.
+
+Ce volume justifie aussi l'utilisation de Spark. Avec plus de deux millions de lignes, des champs imbriqués, des nombres stockés sous forme de texte et plusieurs règles de validation à appliquer, un traitement en mémoire avec Pandas serait lourd et fragile. Spark permet de typer, contrôler et agréger ces données de façon structurée, et le même code pourrait traiter un volume bien plus grand sans être réécrit.
 
 ## Ingestion
 
