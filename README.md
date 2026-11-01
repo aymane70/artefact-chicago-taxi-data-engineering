@@ -58,8 +58,10 @@ Pour vérifier que les conteneurs ont bien démarré :
 docker compose ps
 ```
 
-Cette commande lance Airflow, RustFS et Streamlit. Aucune configuration supplémentaire n'est requise et il n'y a pas de fichier `.env` à créer : tous les paramètres se trouvent déjà dans `docker-compose.yml`. C'est un choix volontaire pour que le projet démarre en une seule commande et soit facile à tester pour le reviewer. Dans un vrai déploiement, les identifiants seraient externalisés.
+Cette commande lance Airflow, RustFS et Streamlit. Aucune configuration supplémentaire n'est requise et il n'y a pas de fichier `.env` à créer : tous les paramètres se trouvent déjà dans `docker-compose.yml`.
 
+> [!NOTE]
+> **Choix volontaire :** les paramètres sont directement dans `docker-compose.yml` pour que le projet démarre en une seule commande et soit facile à tester pour le reviewer. Dans un vrai déploiement, les identifiants seraient externalisés.
 ### 3. Accéder aux interfaces
 
 | Service | URL |
@@ -129,15 +131,17 @@ Chaque mois est extrait puis vérifié. Quand la ligne `Reconciliation successfu
 |:---:|
 | ![Bucket RustFS, quatre mois de données Bronze](docs/screenshots/4month.png) |
 
-**Bon à savoir :** l'API de Chicago peut être très sollicitée ou répondre lentement. Voir des nouvelles tentatives pendant l'ingestion est donc normal :
+> [!NOTE]
+> **Bon à savoir :** l'API de Chicago peut être très sollicitée ou répondre lentement. Voir des nouvelles tentatives pendant l'ingestion est donc normal :
+>
+> ```text
+> WARNING - Request failed: ... Read timed out. (read timeout=180). Retrying in 1 seconds.
+> ```
+>
+> Le pipeline relance simplement la requête et continue.
 
-```text
-WARNING - Request failed: ... Read timed out. (read timeout=180). Retrying in 1 seconds.
-```
-
-Le pipeline relance simplement la requête et continue.
-
-**Conseil pratique :** l'API est généralement plus rapide quand elle est moins sollicitée. Si vous le pouvez, lancez le DAG en dehors des heures de bureau à Chicago (environ 9 h à 17 h, heure de Chicago). Pour un lecteur en Europe ou au Maroc, cela correspond à la fin d'après-midi et à la soirée : mieux vaut donc lancer l'ingestion le matin ou tôt dans la journée, ou en pleine nuit. Les temps d'attente et le nombre de retries s'en trouvent souvent réduits.
+> [!TIP]
+> **Conseil pratique :** l'API est généralement plus rapide quand elle est moins sollicitée. Si vous le pouvez, lancez le DAG en dehors des heures de bureau à Chicago (environ 9 h à 17 h, heure de Chicago). Pour un lecteur en Europe ou au Maroc, cela correspond à la fin d'après-midi et à la soirée : mieux vaut donc lancer l'ingestion le matin ou tôt dans la journée, ou en pleine nuit. Les temps d'attente et le nombre de retries s'en trouvent souvent réduits.
 
 Si une tâche échoue malgré tout, ouvrez ses logs dans Airflow. L'ingestion peut être relancée sans tout retélécharger, car les lots déjà validés sont ignorés.
 
